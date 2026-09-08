@@ -1,5 +1,6 @@
 /**
  * CAMPUSHUB BACKEND CONFIGURATION
+ * Strict environment variable loading and production validation.
  */
 
 const path = require('path');
@@ -10,15 +11,22 @@ try {
   // dotenv optional in environments with pre-loaded vars
 }
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Fail-fast in production if JWT_SECRET is missing or insecure default
+if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16)) {
+  console.error('❌ [FATAL] JWT_SECRET must be set in production environment with at least 16 characters.');
+  process.exit(1);
+}
+
 module.exports = {
-  PORT: process.env.PORT || 5000,
+  PORT: parseInt(process.env.PORT || '5000', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
   FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN || '*',
   DATABASE_URL: process.env.DATABASE_URL || '',
-  DB_PATH: path.join(__dirname, '..', '..', '..', 'database', 'campus_hub.db'),
 
   // JWT Configuration
-  JWT_SECRET: process.env.JWT_SECRET || 'campushub-builder-network-jwt-secret-key-2026',
+  JWT_SECRET: process.env.JWT_SECRET || (isProduction ? '' : 'campushub-dev-local-jwt-secret-key-2026'),
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
 
   // Email / SMTP Configuration
@@ -29,8 +37,8 @@ module.exports = {
   SMTP_PASS: process.env.SMTP_PASS || '',
   SMTP_FROM: process.env.SMTP_FROM || 'CampusHub <no-reply@campushub.edu>',
 
-  // OTP Rules
+  // OTP Security Rules
   OTP_EXPIRY_MS: 5 * 60 * 1000,     // 5 minutes
-  OTP_MAX_ATTEMPTS: 5,             // Max failed attempts before lock
-  OTP_COOLDOWN_MS: 60 * 1000       // 60 seconds cooldown between resends
+  OTP_MAX_ATTEMPTS: 5,             // Max 5 attempts before lock
+  OTP_COOLDOWN_MS: 60 * 1000       // 60s cooldown between resends
 };

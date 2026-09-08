@@ -11,16 +11,18 @@ const eventsRoutes = require('./eventsRoutes');
 const marketplaceRoutes = require('./marketplaceRoutes');
 const notificationsRoutes = require('./notificationsRoutes');
 const chatsRoutes = require('./chatsRoutes');
+const { apiGeneralLimiter } = require('../middlewares/rateLimiter');
 
-// API Health Check
+// API Health Check (Required by Koyeb & Monitoring)
 router.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    service: 'CampusHub REST API',
-    version: '1.0.0',
-    timestamp: new Date().toISOString()
+    service: 'CampusHub REST API'
   });
 });
+
+// Apply general rate limiter to API routes
+router.use(apiGeneralLimiter);
 
 // Mount Subsystem Endpoints
 router.use('/auth', authRoutes);

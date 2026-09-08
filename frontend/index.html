@@ -628,6 +628,9 @@
             <button class="btn btn-nyc-primary" onclick="executeTeamSearch()">
               SEARCH BUILDERS <span class="arrow-sym">→</span>
             </button>
+            <button class="btn btn-nyc-secondary" onclick="openCreateSquadModal()">
+              + POST A SQUAD
+            </button>
           </div>
 
           <!-- Role Filter Chips with Neo-Brutalist styling -->
@@ -1046,6 +1049,63 @@
     </div>
   </div>
 
+  <!-- CREATE SQUAD MODAL -->
+  <div id="create-squad-modal" class="app-modal">
+    <div class="modal-backdrop" onclick="closeModal('create-squad-modal')"></div>
+    <div class="modal-card nyc-box-shadow">
+      <div class="modal-header">
+        <div>
+          <span class="modal-kicker">COLLABORATION</span>
+          <h2 class="modal-title">Create a Project Squad</h2>
+        </div>
+        <button class="modal-close" onclick="closeModal('create-squad-modal')">✕</button>
+      </div>
+
+      <form class="modal-body" onsubmit="handleCreateSquadSubmit(event)">
+        <div class="form-group">
+          <label class="form-label">Project / Squad Title</label>
+          <input type="text" class="form-input" id="cs-title" placeholder="e.g. Smart Autonomous Campus Rover" required>
+        </div>
+
+        <div class="form-row" style="display: flex; gap: 12px;">
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label">Event / Initiative Name</label>
+            <input type="text" class="form-input" id="cs-event-name" placeholder="e.g. Smart India Hackathon 2026" required>
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label class="form-label">Type</label>
+            <select class="form-select" id="cs-event-type">
+              <option value="HACKATHON">HACKATHON</option>
+              <option value="STARTUP">STARTUP</option>
+              <option value="RESEARCH">RESEARCH</option>
+              <option value="CAPSTONE">CAPSTONE</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Roles Needed (comma-separated)</label>
+          <input type="text" class="form-input" id="cs-roles" placeholder="e.g. Frontend Developer, ML Engineer, UI/UX Designer" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">GitHub or Project Link (Optional)</label>
+          <input type="url" class="form-input" id="cs-github" placeholder="https://github.com/...">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Squad Pitch / Description</label>
+          <textarea class="form-textarea" id="cs-desc" rows="3" placeholder="Explain the problem statement, tech stack, and what you are building." required></textarea>
+        </div>
+
+        <div class="modal-footer px-0 pb-0">
+          <button type="button" class="btn btn-nyc-outline" onclick="closeModal('create-squad-modal')">Cancel</button>
+          <button type="submit" class="btn btn-nyc-primary">Post Squad →</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
 
   <!-- ==================================================
        MODALS: EVENT DETAILS & SUCCESS
@@ -1324,6 +1384,7 @@
     <span class="toast-msg" id="toast-msg">Operation completed.</span>
   </div>
 
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -1,8 +1,8 @@
-# Koyeb Configuration
+# Koyeb Production App Specification
 # https://www.koyeb.com/docs/reference/app-specification
 name: campushub
 services:
-  - name: web
+  - name: backend
     type: web
     instance_type: nano
     regions:
@@ -23,12 +23,14 @@ services:
       - min: 1
         max: 1
     git:
-      repository: github.com/saemy-git/CampusHub
+      repository: github.com/Amit470-singh/CampusHub
       branch: main
       build_command: cd backend && npm install
       run_command: node backend/src/server.js
     env:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: "5000"
       - key: FRONTEND_ORIGIN
-        value: "*"
+        value: "https://amit470-singh.github.io"

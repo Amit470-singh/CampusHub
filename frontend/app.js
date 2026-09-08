@@ -9,12 +9,15 @@
  * Set window.CAMPUSHUB_API_URL or update PROD_URL with your Render backend URL.
  */
 const API_CONFIG = {
-  // ⚡ Change this to your deployed Render URL once created:
-  PROD_URL: 'https://campushub-backend.onrender.com/api',
+  // ⚡ Default deployed Koyeb backend URL:
+  PROD_URL: 'https://campushub-backend.koyeb.app/api',
 
   get BASE_URL() {
     if (typeof window !== 'undefined' && window.CAMPUSHUB_API_URL) {
       return window.CAMPUSHUB_API_URL.replace(/\/+$/, '');
+    }
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('campushub_api_url')) {
+      return localStorage.getItem('campushub_api_url').replace(/\/+$/, '');
     }
     if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
       return window.location.port === '3000' ? 'http://localhost:5000/api' : '/api';
@@ -23,7 +26,28 @@ const API_CONFIG = {
       return this.PROD_URL.replace(/\/+$/, '');
     }
     return '/api';
+  },
+
+  get SOCKET_URL() {
+    const base = this.BASE_URL.replace(/\/api\/?$/, '');
+    return base || (typeof window !== 'undefined' ? window.location.origin : '');
   }
+};
+
+/**
+ * Switch or test against any custom Koyeb backend directly from console
+ */
+window.setBackendUrl = function(url) {
+  if (!url) {
+    localStorage.removeItem('campushub_api_url');
+    console.log('⚡ [CAMPUSHUB] Reset backend API to auto-detected default.');
+  } else {
+    const clean = url.replace(/\/+$/, '');
+    const apiUrl = clean.endsWith('/api') ? clean : `${clean}/api`;
+    localStorage.setItem('campushub_api_url', apiUrl);
+    console.log('⚡ [CAMPUSHUB] Set backend API to:', apiUrl);
+  }
+  location.reload();
 };
 
 /**
@@ -47,8 +71,80 @@ async function apiRequest(endpoint, options = {}) {
     const data = await res.json().catch(() => ({ success: false, message: 'Invalid response from server' }));
     return { ok: res.ok, status: res.status, data };
   } catch (err) {
-    console.error(`API Error [${endpoint}]:`, err);
-    return { ok: false, status: 0, data: { success: false, message: 'Unable to connect to CampusHub. Please check your network.' } };
+    console.warn(`API Request [${endpoint}] warning:`, err.message);
+    return { ok: false, status: 0, data: { success: false, message: 'Server unreachable. Operating in offline/cache mode.' } };
+  }
+}
+
+// Global Socket.IO client instance
+let socket = null;
+
+function initSocket() {
+  if (typeof io === 'undefined') return;
+  if (socket && socket.connected) return;
+
+  const token = localStorage.getItem('campushub_token');
+  try {
+    socket = io(API_CONFIG.SOCKET_URL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      timeout: 10000
+    });
+
+    socket.on('connect', () => {
+      console.log('⚡ [Socket.IO] Connected to CampusHub Real-Time Server:', socket.id);
+    });
+
+    socket.on('receive_message', (data) => {
+      if (!data || !data.message) return;
+      const { chatId, message } = data;
+      let chat = store.chats.find(c => c.id === chatId);
+      if (!chat) {
+        chat = {
+          id: chatId,
+          peerName: message.sender || 'Student Builder',
+          peerStatus: 'Online • Verified Builder',
+          avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
+          lastMessage: message.text,
+          messages: []
+        };
+        store.chats.unshift(chat);
+      }
+
+      const isMyMsg = message.senderId === store.currentUser?.id;
+      // Prevent duplicate messages if optimistic update already pushed
+      const exists = chat.messages.some(m => m.id === message.id || (m.text === message.text && Math.abs(new Date(m.createdAt || 0) - new Date(message.createdAt || 0)) < 3000));
+      if (!exists) {
+        chat.messages.push({
+          id: message.id,
+          sender: isMyMsg ? 'me' : 'peer',
+          text: message.text,
+          createdAt: message.createdAt
+        });
+        chat.lastMessage = message.text;
+      }
+
+      const chatDrawer = document.getElementById('chat-drawer');
+      const isDrawerOpen = chatDrawer && chatDrawer.classList.contains('active');
+      if (isDrawerOpen) {
+        renderChatDrawer();
+      } else if (!isMyMsg) {
+        showToast(`💬 ${chat.peerName}: "${message.text.substring(0, 35)}..."`);
+      }
+    });
+
+    socket.on('presence_update', ({ userId, status }) => {
+      // Real-time online status indicator update
+      const activeChat = store.chats[store.activeChatIndex];
+      if (activeChat && (activeChat.user2Id === userId || activeChat.peerName.toLowerCase().includes(userId.toLowerCase()))) {
+        activeChat.peerStatus = status === 'online' ? '🟢 Active Now' : 'Offline';
+        const statusEl = document.getElementById('chat-peer-status');
+        if (statusEl) statusEl.textContent = activeChat.peerStatus;
+      }
+    });
+  } catch (err) {
+    console.warn('Socket initialization skipped:', err.message);
   }
 }
 
@@ -454,6 +550,68 @@ const store = {
 // ==================================================
 // INITIALIZATION
 // ==================================================
+async function loadRemoteSubsystems() {
+  try {
+    // 1. Load Live Teams from Backend
+    apiRequest('/teams').then(({ ok, data }) => {
+      if (ok && data.success && Array.isArray(data.data) && data.data.length > 0) {
+        store.teams = data.data;
+        renderTeamsFeed();
+      }
+    });
+
+    // 2. Load Live Discussions & Feed
+    apiRequest('/discussions').then(({ ok, data }) => {
+      if (ok && data.success && Array.isArray(data.data) && data.data.length > 0) {
+        store.discussions = data.data;
+        renderDiscussions();
+      }
+    });
+
+    // 3. Load Campus Events & Hackathons
+    apiRequest('/events').then(({ ok, data }) => {
+      if (ok && data.success && Array.isArray(data.data) && data.data.length > 0) {
+        store.events = data.data;
+        renderEvents();
+      }
+    });
+
+    // 4. Load Marketplace Products
+    apiRequest('/products').then(({ ok, data }) => {
+      if (ok && data.success && Array.isArray(data.data) && data.data.length > 0) {
+        store.products = data.data;
+        renderMarketplace();
+      }
+    });
+
+    // 5. Load Communities
+    apiRequest('/communities').then(({ ok, data }) => {
+      if (ok && data.success && Array.isArray(data.data) && data.data.length > 0) {
+        store.communities = data.data;
+        renderCommunities();
+      }
+    });
+
+    // 6. Load Notifications
+    apiRequest('/notifications').then(({ ok, data }) => {
+      if (ok && data.success && Array.isArray(data.data)) {
+        store.notifications = data.data;
+        renderNotifications();
+      }
+    });
+
+    // 7. Load Direct Chats
+    apiRequest('/chats').then(({ ok, data }) => {
+      if (ok && data.success && Array.isArray(data.data) && data.data.length > 0) {
+        store.chats = data.data;
+        renderChatDrawer();
+      }
+    });
+  } catch (err) {
+    console.warn('Backend subsystems offline. Operating in optimistic offline mode.');
+  }
+}
+
 async function checkAuthSession() {
   const token = localStorage.getItem('campushub_token');
   if (!token) return;
@@ -465,6 +623,8 @@ async function checkAuthSession() {
     localStorage.setItem('campushub_user', JSON.stringify(data.user));
     updateUserUI();
     document.getElementById('onboarding-modal')?.classList.remove('active');
+    initSocket();
+    loadRemoteSubsystems();
   } else {
     // Session expired or invalid
     localStorage.removeItem('campushub_token');
@@ -479,6 +639,8 @@ document.addEventListener('DOMContentLoaded', () => {
   renderRoadmapTimeline('ai');
   startOtpTimer();
   updateUserUI();
+  initSocket();
+  loadRemoteSubsystems();
 
   // If already logged in, dismiss onboarding modal automatically
   if (store.isLoggedIn && localStorage.getItem('campushub_token')) {
@@ -794,6 +956,8 @@ window.handleOtpSubmit = async function(e) {
     }
     store.isLoggedIn = true;
     updateUserUI();
+    initSocket();
+    loadRemoteSubsystems();
 
     showToast('✓ Email verified successfully.');
 
@@ -1332,10 +1496,11 @@ function renderNotifications() {
   });
 }
 
-window.markAllNotificationsRead = function() {
+window.markAllNotificationsRead = async function() {
   store.notifications.forEach(n => n.unread = false);
   renderNotifications();
   showToast('All notifications marked read.');
+  await apiRequest('/notifications/mark-read', { method: 'POST' });
 };
 
 function renderChatDrawer() {
@@ -1351,12 +1516,15 @@ function renderChatDrawer() {
       item.onclick = () => {
         store.activeChatIndex = idx;
         renderChatDrawer();
+        if (socket && socket.connected && chat.id) {
+          socket.emit('join_chat', { chatId: chat.id });
+        }
       };
       item.innerHTML = `
         <img src="${chat.avatar}" class="convo-avatar">
         <div>
           <div class="convo-name">${chat.peerName}</div>
-          <div class="convo-snippet">${chat.lastMessage}</div>
+          <div class="convo-snippet">${chat.lastMessage || 'Connected on CampusHub'}</div>
         </div>
       `;
       sidebar.appendChild(item);
@@ -1375,36 +1543,73 @@ function renderChatDrawer() {
   }
 }
 
-window.openPeerChat = function(peerName) {
+window.openPeerChat = async function(peerName) {
   let chatIdx = store.chats.findIndex(c => c.peerName.toLowerCase().includes(peerName.toLowerCase()));
   if (chatIdx === -1) {
-    store.chats.push({
+    const newChat = {
       id: `chat-${Date.now()}`,
       peerName: peerName,
       peerStatus: 'Verified Campus Builder',
       avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
       lastMessage: 'Connected on CampusHub',
-      messages: [{ sender: 'peer', text: `Hey Arjun! Ready to build together.` }]
-    });
+      messages: [{ sender: 'peer', text: `Hey! Ready to build together.` }]
+    };
+    store.chats.push(newChat);
     chatIdx = store.chats.length - 1;
+
+    // Open/create in backend
+    apiRequest('/chats/open', {
+      method: 'POST',
+      body: JSON.stringify({ peerName })
+    }).then(({ ok, data }) => {
+      if (ok && data.data) {
+        newChat.id = data.data.id;
+        if (socket && socket.connected) {
+          socket.emit('join_chat', { chatId: data.data.id });
+        }
+      }
+    });
   }
+
   store.activeChatIndex = chatIdx;
   renderChatDrawer();
   document.getElementById('chat-drawer')?.classList.add('active');
+
+  const currentChat = store.chats[chatIdx];
+  if (socket && socket.connected && currentChat && currentChat.id) {
+    socket.emit('join_chat', { chatId: currentChat.id });
+  }
 };
 
-window.handleSendChatMessage = function(e) {
-  e.preventDefault();
+window.handleSendChatMessage = async function(e) {
+  if (e) e.preventDefault();
   const input = document.getElementById('chat-text-input');
   const text = input ? input.value.trim() : '';
   if (!text) return;
 
   const currentChat = store.chats[store.activeChatIndex];
-  if (currentChat) {
-    currentChat.messages.push({ sender: 'me', text });
-    currentChat.lastMessage = text;
-    input.value = '';
-    renderChatDrawer();
+  if (!currentChat) return;
+
+  input.value = '';
+
+  // 1. Optimistic local UI update
+  currentChat.messages.push({ sender: 'me', text, createdAt: new Date().toISOString() });
+  currentChat.lastMessage = text;
+  renderChatDrawer();
+
+  // 2. Real-time emit via Socket.IO
+  if (socket && socket.connected) {
+    socket.emit('send_message', {
+      chatId: currentChat.id,
+      text: text,
+      recipientId: currentChat.user2Id || null
+    });
+  } else {
+    // 3. Fallback to REST API
+    await apiRequest(`/chats/${currentChat.id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ text, sender: 'me' })
+    });
   }
 };
 
@@ -1413,10 +1618,61 @@ window.closeChatDrawer = function() {
 };
 
 // ==================================================
-// MODAL HANDLERS
+// MODAL HANDLERS & BACKEND ACTIONS
 // ==================================================
 window.openModal = function(id) { document.getElementById(id)?.classList.add('active'); };
 window.closeModal = function(id) { document.getElementById(id)?.classList.remove('active'); };
+
+window.openCreateSquadModal = function() { openModal('create-squad-modal'); };
+
+window.handleCreateSquadSubmit = async function(e) {
+  if (e) e.preventDefault();
+  const title = document.getElementById('cs-title')?.value;
+  const eventName = document.getElementById('cs-event-name')?.value;
+  const eventType = document.getElementById('cs-event-type')?.value || 'HACKATHON';
+  const rolesRaw = document.getElementById('cs-roles')?.value || 'Developer';
+  const github = document.getElementById('cs-github')?.value || '';
+  const description = document.getElementById('cs-desc')?.value;
+
+  const neededRoles = rolesRaw.split(',').map(r => r.trim()).filter(Boolean);
+
+  const newSquad = {
+    id: `team-${Date.now()}`,
+    title,
+    eventType,
+    eventName,
+    description,
+    teamStatus: '1 / 4 members',
+    github: github || 'https://github.com/campus-collab',
+    neededRoles,
+    members: [
+      { name: store.currentUser.name, role: 'Squad Lead', avatar: store.currentUser.avatar }
+    ]
+  };
+
+  store.teams.unshift(newSquad);
+  closeModal('create-squad-modal');
+  renderTeamsFeed();
+  switchView('teams');
+  showToast('⚡ Squad created and listed for recruitment!');
+
+  // Persist to backend
+  apiRequest('/teams', {
+    method: 'POST',
+    body: JSON.stringify({
+      title,
+      eventName,
+      eventType,
+      description,
+      neededRoles,
+      github
+    })
+  }).then(({ ok, data }) => {
+    if (ok && data.data) {
+      newSquad.id = data.data.id;
+    }
+  });
+};
 
 window.openTeamDetailsModal = function(teamId) {
   const team = store.teams.find(t => t.id === teamId) || store.teams[0];
@@ -1430,7 +1686,7 @@ window.openTeamDetailsModal = function(teamId) {
     </div>
     <div class="mt-3">
       <div class="font-bold text-sm mb-1">Roles Needed:</div>
-      <div class="flex flex-wrap gap-2">${team.neededRoles.map(r => `<span class="role-needed-tag">+ ${r}</span>`).join('')}</div>
+      <div class="flex flex-wrap gap-2">${(team.neededRoles || []).map(r => `<span class="role-needed-tag">+ ${r}</span>`).join('')}</div>
     </div>
   `;
   openModal('team-details-modal');
@@ -1441,10 +1697,32 @@ window.openApplyToTeamModal = function() {
   openModal('apply-team-modal');
 };
 
-window.handleTeamApplicationSubmit = function(e) {
-  e.preventDefault();
+window.handleTeamApplicationSubmit = async function(e) {
+  if (e) e.preventDefault();
+  const team = store.currentModalEntity;
+  const roleEl = document.getElementById('apply-role-select');
+  const reasonEl = document.getElementById('apply-reason');
+  const githubEl = document.getElementById('apply-portfolio');
+
+  const roleApplied = roleEl ? roleEl.value : 'Developer';
+  const reason = reasonEl ? reasonEl.value : 'Excited to build with the squad.';
+  const githubPortfolio = githubEl ? githubEl.value : '';
+
   closeModal('apply-team-modal');
   showToast('⚡ Squad application sent to project lead!');
+
+  if (team && team.id) {
+    await apiRequest(`/teams/${team.id}/apply`, {
+      method: 'POST',
+      body: JSON.stringify({
+        roleApplied,
+        reason,
+        githubPortfolio,
+        applicantName: store.currentUser.name,
+        applicantEmail: store.currentUser.email
+      })
+    });
+  }
 };
 
 window.openEventDetailsModal = function(id) {
@@ -1463,10 +1741,16 @@ window.openEventDetailsModal = function(id) {
   openModal('event-details-modal');
 };
 
-window.handleEventRegistration = function() {
+window.handleEventRegistration = async function() {
+  const ev = store.currentModalEntity;
   closeModal('event-details-modal');
-  if (store.currentModalEntity) store.currentModalEntity.isRegistered = true;
-  renderEvents();
+  if (ev) {
+    ev.isRegistered = true;
+    renderEvents();
+    if (ev.id) {
+      await apiRequest(`/events/${ev.id}/register`, { method: 'POST' });
+    }
+  }
   openModal('event-success-modal');
 };
 
@@ -1489,22 +1773,47 @@ window.startSellerChatFromModal = function() {
 };
 
 window.openSellItemModal = function() { openModal('sell-item-modal'); };
-window.handleSellItemSubmit = function(e) {
-  e.preventDefault();
-  store.products.unshift({
+window.handleSellItemSubmit = async function(e) {
+  if (e) e.preventDefault();
+  const title = document.getElementById('sell-title')?.value;
+  const category = document.getElementById('sell-category')?.value;
+  const rawPrice = document.getElementById('sell-price')?.value;
+  const desc = document.getElementById('sell-desc')?.value;
+  const img = document.getElementById('sell-img')?.value || 'https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=600&auto=format&fit=crop&q=80';
+  const price = `₹${rawPrice}`;
+
+  const newProduct = {
     id: `prod-${Date.now()}`,
-    title: document.getElementById('sell-title').value,
-    category: document.getElementById('sell-category').value,
+    title,
+    category,
     condition: 'Used',
-    price: `₹${document.getElementById('sell-price').value}`,
+    price,
     seller: store.currentUser.name,
-    desc: document.getElementById('sell-desc').value,
-    img: document.getElementById('sell-img').value || 'https://images.unsplash.com/photo-1588872657578-7efd1f1555ed?w=600&auto=format&fit=crop&q=80'
-  });
+    desc,
+    img
+  };
+
+  store.products.unshift(newProduct);
   closeModal('sell-item-modal');
   renderMarketplace();
   switchView('marketplace');
   showToast('⚡ Item posted to campus bazaar!');
+
+  apiRequest('/products', {
+    method: 'POST',
+    body: JSON.stringify({
+      title,
+      category,
+      condition: 'Used',
+      price,
+      desc,
+      img
+    })
+  }).then(({ ok, data }) => {
+    if (ok && data.data && data.data.id) {
+      newProduct.id = data.data.id;
+    }
+  });
 };
 
 window.openCreatePostModal = function() { openModal('create-post-modal'); };
@@ -1515,26 +1824,50 @@ window.togglePostIdentity = function(type) {
   document.getElementById('pill-anon-name')?.classList.toggle('active', currentPostIsAnon);
 };
 
-window.handleCreatePostSubmit = function(e) {
-  e.preventDefault();
-  store.discussions.unshift({
+window.handleCreatePostSubmit = async function(e) {
+  if (e) e.preventDefault();
+  const category = document.getElementById('new-post-cat')?.value || 'General';
+  const content = document.getElementById('new-post-content')?.value;
+  if (!content) return;
+
+  const author = currentPostIsAnon ? 'Anonymous Builder' : store.currentUser.name;
+  const newPost = {
     id: `post-${Date.now()}`,
-    author: currentPostIsAnon ? 'Anonymous Builder' : store.currentUser.name,
+    author,
     isAnon: currentPostIsAnon,
-    dept: 'Verified Student',
+    dept: store.currentUser.department || 'Verified Student',
     time: 'Just now',
-    category: document.getElementById('new-post-cat').value,
-    content: document.getElementById('new-post-content').value,
+    category,
+    content,
     tags: ['Building', 'Campus'],
     likes: 0,
     isLiked: false,
     commentsCount: 0,
     avatar: store.currentUser.avatar
-  });
+  };
+
+  store.discussions.unshift(newPost);
   closeModal('create-post-modal');
   renderDiscussions();
   switchView('discussions');
   showToast('⚡ Post published to campus feed!');
+
+  apiRequest('/discussions', {
+    method: 'POST',
+    body: JSON.stringify({
+      content,
+      category,
+      isAnon: currentPostIsAnon,
+      tags: ['Building', 'Campus'],
+      author,
+      dept: store.currentUser.department || 'Verified Student',
+      avatar: store.currentUser.avatar
+    })
+  }).then(({ ok, data }) => {
+    if (ok && data.data && data.data.id) {
+      newPost.id = data.data.id;
+    }
+  });
 };
 
 window.openCreateMenuModal = function() { openModal('create-menu-modal'); };
