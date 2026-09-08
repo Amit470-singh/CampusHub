@@ -13,7 +13,7 @@ const notificationsRoutes = require('./notificationsRoutes');
 const chatsRoutes = require('./chatsRoutes');
 const { apiGeneralLimiter } = require('../middlewares/rateLimiter');
 
-// API Health Check (Required by Koyeb & Monitoring)
+// API Health Check (Required for Vercel & monitoring)
 router.get('/health', (req, res) => {
   res.json({
     status: 'ok',

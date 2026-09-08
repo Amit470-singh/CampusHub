@@ -126,16 +126,21 @@ This code will expire in 5 minutes. If you did not request this verification, pl
       html: htmlContent
     });
   } catch (err) {
-    console.warn(`⚠️ [EMAIL] Live SMTP send failed (${err.message}). Logging verification code to console:`);
-    console.log(`
+    if (config.NODE_ENV === 'production') {
+      console.error(`❌ [EMAIL] Live SMTP send failed to ${toEmail}:`, err.message);
+      throw new Error('Failed to send verification email. Please try again later.');
+    } else {
+      console.warn(`⚠️ [EMAIL] Local dev fallback (live send failed: ${err.message}):`);
+      console.log(`
 ⚡ =======================================================
-📧 [CAMPUSHUB VERIFICATION CODE DISPATCH]
+📧 [CAMPUSHUB LOCAL DEV VERIFICATION CODE]
 📬 To:          ${toEmail}
 🔑 OTP Code:    ${otpCode}
 ⏱️ Time:        ${new Date().toLocaleTimeString()}
 =======================================================
-    `);
-    return { messageId: `fallback-${Date.now()}` };
+      `);
+      return { messageId: `local-dev-${Date.now()}` };
+    }
   }
 }
 

@@ -5,12 +5,13 @@
 
 /**
  * CAMPUSHUB API CONFIGURATION
- * Configures the backend REST API endpoint for Localhost, GitHub Pages, and Render.
- * Set window.CAMPUSHUB_API_URL or update PROD_URL with your Render backend URL.
+ * Configures the backend REST API endpoint for Localhost, GitHub Pages, and Production.
+ * Set window.CAMPUSHUB_API_URL or update PROD_URL with your Vercel backend URL.
+ * You can also set it dynamically in browser console: window.setBackendUrl('https://your-app.vercel.app')
  */
 const API_CONFIG = {
-  // ⚡ Default deployed Koyeb backend URL:
-  PROD_URL: 'https://campushub-backend.koyeb.app/api',
+  // ⚡ Production backend URL (set to your Vercel deployment URL):
+  PROD_URL: '',
 
   get BASE_URL() {
     if (typeof window !== 'undefined' && window.CAMPUSHUB_API_URL) {
@@ -23,7 +24,7 @@ const API_CONFIG = {
       return window.location.port === '3000' ? 'http://localhost:5000/api' : '/api';
     }
     if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
-      return this.PROD_URL.replace(/\/+$/, '');
+      return this.PROD_URL ? this.PROD_URL.replace(/\/+$/, '') : '/api';
     }
     return '/api';
   },
@@ -35,7 +36,7 @@ const API_CONFIG = {
 };
 
 /**
- * Switch or test against any custom Koyeb backend directly from console
+ * Switch or test against any custom production/staging backend directly from console
  */
 window.setBackendUrl = function(url) {
   if (!url) {

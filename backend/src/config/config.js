@@ -13,10 +13,16 @@ try {
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Fail-fast in production if JWT_SECRET is missing or insecure default
-if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16)) {
-  console.error('❌ [FATAL] JWT_SECRET must be set in production environment with at least 16 characters.');
-  process.exit(1);
+// Fail-fast in production if critical variables are missing
+if (isProduction) {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) {
+    console.error('❌ [FATAL] JWT_SECRET must be set in production environment with at least 16 characters.');
+    process.exit(1);
+  }
+  if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('postgres')) {
+    console.error('❌ [FATAL] DATABASE_URL must be set in production environment with a valid PostgreSQL connection URI.');
+    process.exit(1);
+  }
 }
 
 module.exports = {
@@ -24,6 +30,9 @@ module.exports = {
   NODE_ENV: process.env.NODE_ENV || 'development',
   FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN || '*',
   DATABASE_URL: process.env.DATABASE_URL || '',
+
+  // Database Pool settings (optimized for serverless & Supabase transaction pooler)
+  DB_POOL_MAX: parseInt(process.env.DB_POOL_MAX || (isProduction ? '5' : '20'), 10),
 
   // JWT Configuration
   JWT_SECRET: process.env.JWT_SECRET || (isProduction ? '' : 'campushub-dev-local-jwt-secret-key-2026'),

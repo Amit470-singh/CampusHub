@@ -1,6 +1,6 @@
 /**
- * CAMPUSHUB REST API & REAL-TIME SOCKET.IO SERVER
- * Version 2.1.0 (Production-Ready for Koyeb & Supabase)
+ * CAMPUSHUB REST API & REAL-TIME SERVER
+ * Version 2.2.0 (Production-Ready for Vercel Serverless & Supabase)
  */
 
 const http = require('http');
@@ -37,20 +37,13 @@ function isOriginAllowed(origin) {
     if (cleanOrigin.startsWith('http://localhost') || cleanOrigin.startsWith('http://127.0.0.1')) {
       return true;
     }
+    if (config.FRONTEND_ORIGIN === '*') {
+      return true;
+    }
   }
 
-  // Allow wildcard only if explicitly configured in non-production
-  if (config.FRONTEND_ORIGIN === '*' && config.NODE_ENV !== 'production') {
-    return true;
-  }
-
-  // Exact whitelist match
-  if (configuredOrigins.includes(cleanOrigin) || configuredOrigins.includes('*')) {
-    return true;
-  }
-
-  // Allow GitHub Pages origins if frontend is hosted there
-  if (cleanOrigin.endsWith('.github.io')) {
+  // Production: strictly allow configured FRONTEND_ORIGIN only
+  if (configuredOrigins.includes(cleanOrigin)) {
     return true;
   }
 
@@ -72,15 +65,18 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestLogger);
 
-// Mount API Endpoints
+// Mount API Endpoints (both on /api and root fallback for flexible rewrite environments)
 app.use('/api', apiRoutes);
+app.use(apiRoutes);
 
-// Optional: Serve frontend static assets if hosted together (e.g. Docker or local preview)
+// Optional: Serve frontend static assets if hosted together (e.g. local dev preview)
 const frontendPath = path.join(__dirname, '..', '..', 'frontend');
 app.use(express.static(frontendPath));
 
@@ -104,7 +100,7 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 // =========================================================
-// REAL-TIME WEBSOCKET LAYER (Socket.IO)
+// REAL-TIME WEBSOCKET LAYER (Socket.IO for local / standalone)
 // =========================================================
 const io = new Server(server, {
   cors: {
@@ -135,18 +131,14 @@ io.use(async (socket, next) => {
         socket.user = user;
       }
     }
-    // Allow connection even as guest for public channel events; authenticated features check socket.user
     next();
   } catch (err) {
-    // If token invalid, allow as guest rather than aborting connection
     next();
   }
 });
 
 io.on('connection', (socket) => {
   const user = socket.user;
-  const userId = user ? user.id : `guest_${socket.id.substring(0, 5)}`;
-  const userName = user ? user.name : 'Anonymous Student';
 
   if (user) {
     onlineUsers.set(user.id, socket.id);
@@ -154,21 +146,14 @@ io.on('connection', (socket) => {
     io.emit('presence_update', { userId: user.id, status: 'online' });
   }
 
-  // Join specific chat room
   socket.on('join_chat', ({ chatId }) => {
-    if (chatId) {
-      socket.join(`chat:${chatId}`);
-    }
+    if (chatId) socket.join(`chat:${chatId}`);
   });
 
-  // Leave specific chat room
   socket.on('leave_chat', ({ chatId }) => {
-    if (chatId) {
-      socket.leave(`chat:${chatId}`);
-    }
+    if (chatId) socket.leave(`chat:${chatId}`);
   });
 
-  // Real-time message exchange
   socket.on('send_message', async (payload, ack) => {
     try {
       const { chatId, text, recipientId } = payload;
@@ -180,7 +165,6 @@ io.on('connection', (socket) => {
       const senderId = user ? user.id : 'user-01';
       const senderName = user ? user.name : 'me';
 
-      // Persist in Supabase / PostgreSQL database
       const savedMsg = await db.sendMessage(chatId, senderId, senderName, text.trim());
 
       const broadcastPayload = {
@@ -194,10 +178,8 @@ io.on('connection', (socket) => {
         }
       };
 
-      // Broadcast to all participants in this chat room
       io.to(`chat:${chatId}`).emit('receive_message', broadcastPayload);
 
-      // If recipient has a private user room, notify them directly
       if (recipientId) {
         io.to(`user:${recipientId}`).emit('receive_message', broadcastPayload);
       }
@@ -209,7 +191,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle client disconnection
   socket.on('disconnect', () => {
     if (user) {
       onlineUsers.delete(user.id);
@@ -218,9 +199,10 @@ io.on('connection', (socket) => {
   });
 });
 
-// Start HTTP & WebSocket Server
-server.listen(config.PORT, '0.0.0.0', () => {
-  console.log(`
+// Start HTTP & WebSocket Server only when run directly as standalone script
+if (require.main === module) {
+  server.listen(config.PORT, '0.0.0.0', () => {
+    console.log(`
 🚀 =======================================================
 ⚡ CAMPUSHUB BACKEND REST & REAL-TIME SERVER ONLINE
 📍 Port:              ${config.PORT}
@@ -230,25 +212,29 @@ server.listen(config.PORT, '0.0.0.0', () => {
 🗄️ Database:          PostgreSQL / Supabase
 ⚡ Environment:       ${config.NODE_ENV}
 =======================================================
-  `);
-});
-
-// Graceful Shutdown
-function gracefulShutdown(signal) {
-  console.log(`\n🛑 Received ${signal}. Gracefully shutting down CampusHub server...`);
-  server.close(async () => {
-    try {
-      const pool = db.getPool();
-      await pool.end();
-      console.log('✅ PostgreSQL connection pool closed.');
-    } catch (e) {
-      // Ignore pool close errors on shutdown
-    }
-    process.exit(0);
+    `);
   });
+
+  // Graceful Shutdown
+  function gracefulShutdown(signal) {
+    console.log(`\n🛑 Received ${signal}. Gracefully shutting down CampusHub server...`);
+    server.close(async () => {
+      try {
+        const pool = db.getPool();
+        await pool.end();
+        console.log('✅ PostgreSQL connection pool closed.');
+      } catch (e) {
+        // Ignore pool close errors on shutdown
+      }
+      process.exit(0);
+    });
+  }
+
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 }
 
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-
-module.exports = { app, server, io };
+module.exports = app;
+module.exports.app = app;
+module.exports.server = server;
+module.exports.io = io;

@@ -52,7 +52,7 @@ function getPool() {
       ssl: (isProduction || isSupabase || (connectionString && connectionString.includes('sslmode=require')))
         ? { rejectUnauthorized: false }
         : false,
-      max: 20,
+      max: (typeof config !== 'undefined' && config.DB_POOL_MAX) ? config.DB_POOL_MAX : (isProduction ? 5 : 20),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000
     });
