@@ -15,13 +15,11 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 // Fail-fast in production if critical variables are missing
 if (isProduction) {
-  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 16) {
-    console.error('❌ [FATAL] JWT_SECRET must be set in production environment with at least 16 characters.');
-    process.exit(1);
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim().length < 16) {
+    throw new Error('CRITICAL CONFIGURATION ERROR: JWT_SECRET environment variable is required in production (minimum 16 characters). Configure this in Vercel Project Settings.');
   }
   if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('postgres')) {
-    console.error('❌ [FATAL] DATABASE_URL must be set in production environment with a valid PostgreSQL connection URI.');
-    process.exit(1);
+    throw new Error('CRITICAL CONFIGURATION ERROR: DATABASE_URL environment variable is required in production with a valid PostgreSQL URI. Configure this in Vercel Project Settings.');
   }
 }
 

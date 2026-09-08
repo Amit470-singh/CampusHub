@@ -23,14 +23,25 @@ const server = http.createServer(app);
 // Initialize DB connection pool
 db.getPool();
 
+function parseOrigin(str) {
+  if (!str) return '';
+  const trimmed = str.trim();
+  try {
+    const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+    return url.origin;
+  } catch (e) {
+    return trimmed.replace(/\/+$/, '');
+  }
+}
+
 // Parse Allowed Origins for CORS
 const configuredOrigins = config.FRONTEND_ORIGIN
-  ? config.FRONTEND_ORIGIN.split(',').map(o => o.trim().replace(/\/+$/, ''))
+  ? config.FRONTEND_ORIGIN.split(',').map(parseOrigin).filter(Boolean)
   : [];
 
 function isOriginAllowed(origin) {
   if (!origin) return true; // Mobile apps, Postman, curl, server-to-server
-  const cleanOrigin = origin.replace(/\/+$/, '');
+  const cleanOrigin = parseOrigin(origin);
 
   // Local development origins
   if (config.NODE_ENV !== 'production') {
@@ -56,12 +67,12 @@ const corsOptions = {
       callback(null, true);
     } else {
       console.warn(`⚠️ [CORS Blocked] Origin not allowed: ${origin}`);
-      callback(new Error(`CORS policy does not allow access from origin: ${origin}`));
+      callback(null, false);
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Cookie']
 };
 
 app.use(cors(corsOptions));
@@ -71,6 +82,27 @@ app.use(cookieParser());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(requestLogger);
+
+// Root endpoint for API service discovery & health status
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'CampusHub REST API',
+    version: '2.2.0',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth',
+      teams: '/api/teams',
+      events: '/api/events',
+      products: '/api/products',
+      communities: '/api/communities',
+      discussions: '/api/discussions',
+      notifications: '/api/notifications',
+      chats: '/api/chats',
+      roadmaps: '/api/roadmaps'
+    }
+  });
+});
 
 // Mount API Endpoints (both on /api and root fallback for flexible rewrite environments)
 app.use('/api', apiRoutes);

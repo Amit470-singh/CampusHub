@@ -26,11 +26,14 @@ campus-hub/
 │   │   └── server.js     # Express server entry point
 │   └── package.json      # Backend dependencies & scripts
 │
-├── database/             # Relational Data & Persistence Layer
-│   ├── campus_hub.db     # SQLite Database
-│   ├── db.js             # Data Access Object (DAO) & query engine
-│   ├── schema.sql        # Database schema definitions
-│   └── seed.sql          # Seed dataset
+├── database/             # Relational Data & Persistence Layer (PostgreSQL / Supabase)
+│   ├── db.js             # Data Access Object (DAO) & connection pool
+│   ├── schema.sql        # Database schema definitions (PostgreSQL DDL)
+│   ├── seed.sql          # Seed dataset
+│   └── seed.js           # CLI seeding script
+│
+├── api/                  # Vercel Serverless Function Entrypoint
+│   └── index.js          # Routes HTTP requests to Express app
 │
 └── package.json          # Root workspace orchestration scripts
 ```

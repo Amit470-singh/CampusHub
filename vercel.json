@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "framework": null,
   "rewrites": [
     {
       "source": "/api/(.*)",
@@ -7,6 +8,10 @@
     },
     {
       "source": "/api",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/",
       "destination": "/api/index.js"
     }
   ]

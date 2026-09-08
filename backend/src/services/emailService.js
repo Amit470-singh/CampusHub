@@ -11,48 +11,37 @@ let transporter = null;
 function getTransporter() {
   if (transporter) return transporter;
 
-  if (config.SMTP_HOST && config.SMTP_USER && config.SMTP_PASS) {
-    const isGmail = config.SMTP_HOST.toLowerCase().includes('gmail');
-    const transportOptions = isGmail
-      ? {
-          service: 'gmail',
-          auth: {
-            user: config.SMTP_USER,
-            pass: config.SMTP_PASS.replace(/\s+/g, '')
-          }
-        }
-      : {
-          host: config.SMTP_HOST,
-          port: config.SMTP_PORT,
-          secure: config.SMTP_SECURE,
-          auth: {
-            user: config.SMTP_USER,
-            pass: config.SMTP_PASS.replace(/\s+/g, '')
-          }
-        };
+  const host = process.env.SMTP_HOST || config.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT || config.SMTP_PORT) || 587;
+  const secure = (process.env.SMTP_SECURE !== undefined ? process.env.SMTP_SECURE : String(config.SMTP_SECURE)) === 'true';
+  const user = process.env.SMTP_USER || config.SMTP_USER;
+  const pass = (process.env.SMTP_PASS || config.SMTP_PASS || '').replace(/\s+/g, '');
 
-    transporter = nodemailer.createTransport(transportOptions);
-    console.log(`📧 [EMAIL] Configured Live SMTP Transport via ${config.SMTP_HOST} (${config.SMTP_USER})`);
-  } else {
-    // Development / Local Mode: Safe transporter that logs to console
-    transporter = {
-      sendMail: async (mailOptions) => {
-        console.log(`
-⚡ =======================================================
-📧 [CAMPUSHUB LOCAL EMAIL DISPATCH]
-📬 To:          ${mailOptions.to}
-🔑 Subject:     ${mailOptions.subject}
-⏱️ Generated:   ${new Date().toLocaleTimeString()}
--------------------------------------------------------
-${mailOptions.text}
-=======================================================
-        `);
-        return { messageId: `local-dev-${Date.now()}` };
+  if (host && user && pass) {
+    transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: {
+        user,
+        pass
       }
-    };
-    console.log('📧 [EMAIL] Running in Local Development Email Mode (OTPs logged to backend console).');
+    });
+    return transporter;
   }
 
+  const isProduction = (process.env.NODE_ENV === 'production') || (config.NODE_ENV === 'production');
+  if (isProduction) {
+    throw new Error('SMTP configuration missing: SMTP_HOST, SMTP_USER, and SMTP_PASS must be configured in production environment variables.');
+  }
+
+  // Development / Local Mode: Safe mock transporter that logs for offline testing
+  transporter = {
+    sendMail: async (mailOptions) => {
+      console.log(`[CAMPUSHUB LOCAL DEV] Simulated email dispatched to ${mailOptions.to}`);
+      return { messageId: `local-dev-${Date.now()}` };
+    }
+  };
   return transporter;
 }
 
@@ -118,27 +107,22 @@ This code will expire in 5 minutes. If you did not request this verification, pl
   `;
 
   try {
+    const fromAddress = process.env.SMTP_FROM || config.SMTP_FROM || 'CampusHub <singhamit6509@gmail.com>';
     return await mailTransporter.sendMail({
-      from: config.SMTP_FROM,
+      from: fromAddress,
       to: toEmail,
       subject: subject,
       text: textContent,
       html: htmlContent
     });
   } catch (err) {
-    if (config.NODE_ENV === 'production') {
-      console.error(`❌ [EMAIL] Live SMTP send failed to ${toEmail}:`, err.message);
-      throw new Error('Failed to send verification email. Please try again later.');
+    const isProduction = (process.env.NODE_ENV === 'production') || (config.NODE_ENV === 'production');
+    if (isProduction) {
+      console.error(`❌ [EMAIL] SMTP delivery failure for recipient ${toEmail}:`, err.message);
+      throw new Error('Failed to send verification email. Please check SMTP configuration or try again later.');
     } else {
       console.warn(`⚠️ [EMAIL] Local dev fallback (live send failed: ${err.message}):`);
-      console.log(`
-⚡ =======================================================
-📧 [CAMPUSHUB LOCAL DEV VERIFICATION CODE]
-📬 To:          ${toEmail}
-🔑 OTP Code:    ${otpCode}
-⏱️ Time:        ${new Date().toLocaleTimeString()}
-=======================================================
-      `);
+      console.log(`[CAMPUSHUB DEV ONLY] OTP Code for ${toEmail}: ${otpCode}`);
       return { messageId: `local-dev-${Date.now()}` };
     }
   }

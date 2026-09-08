@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "description": "CampusHub — Student-Only Collaboration Platform (Decoupled Frontend & Backend Architecture)",
   "scripts": {
-    "build": "cd backend && npm install",
+    "build": "echo 'CampusHub backend ready for deployment'",
     "start": "node backend/src/server.js",
     "dev": "npm --prefix backend run dev",
     "dev:backend": "npm --prefix backend run dev",
@@ -21,7 +21,7 @@
   "author": "CampusHub Team",
   "license": "MIT",
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=20.0.0"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
