@@ -28,33 +28,40 @@ let pool = null;
  */
 function getPool() {
   if (!pool) {
-    let connectionString = process.env.DATABASE_URL;
-
-    // Fallback attempt to read config if available
+    let config = null;
     try {
-      const config = require('../backend/src/config/config');
-      if (!connectionString && config.DATABASE_URL) {
-        connectionString = config.DATABASE_URL;
-      }
+      config = require('../backend/src/config/config');
     } catch (e) {
-      // Ignore
+      // Fallback if config module is unavailable
     }
+
+    let connectionString = (process.env.DATABASE_URL || (config && config.DATABASE_URL) || '').trim().replace(/^["']|["']$/g, '');
 
     if (!connectionString) {
       console.warn('⚠️ [DB Warning] DATABASE_URL is not set. Database operations will fail until configured.');
     }
 
-    const isProduction = process.env.NODE_ENV === 'production';
+    const isProduction = process.env.NODE_ENV === 'production' || (config && config.NODE_ENV === 'production');
     const isSupabase = connectionString && (connectionString.includes('supabase.co') || connectionString.includes('pooler.supabase.com'));
 
+    // Strip sslmode query parameter so it does not conflict with pg Pool's explicit SSL object configuration
+    const cleanConnectionString = connectionString
+      ? connectionString.replace(/[?&]sslmode=[^&]+/g, '').replace(/\?$/, '')
+      : undefined;
+
+    const needsSsl = isProduction || isSupabase || (connectionString && connectionString.includes('sslmode=require'));
+
+    const maxConnections = (config && config.DB_POOL_MAX)
+      ? config.DB_POOL_MAX
+      : (process.env.DB_POOL_MAX ? parseInt(process.env.DB_POOL_MAX, 10) : (isProduction ? 5 : 20));
+
     pool = new Pool({
-      connectionString: connectionString || undefined,
-      ssl: (isProduction || isSupabase || (connectionString && connectionString.includes('sslmode=require')))
-        ? { rejectUnauthorized: false }
-        : false,
-      max: (typeof config !== 'undefined' && config.DB_POOL_MAX) ? config.DB_POOL_MAX : (isProduction ? 5 : 20),
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 10000
+      connectionString: cleanConnectionString,
+      ssl: needsSsl ? { rejectUnauthorized: false } : false,
+      max: maxConnections,
+      idleTimeoutMillis: isProduction ? 10000 : 30000,
+      connectionTimeoutMillis: 10000,
+      allowExitOnIdle: true
     });
 
     pool.on('error', (err) => {

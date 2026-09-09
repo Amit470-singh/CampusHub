@@ -4,21 +4,28 @@
  */
 
 const path = require('path');
-try {
-  require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
-  require('dotenv').config({ path: path.join(__dirname, '..', '..', '..', '.env') });
-} catch (e) {
-  // dotenv optional in environments with pre-loaded vars
+
+// Only load local .env in development/testing environments to prevent overwriting Vercel production environment variables
+if (process.env.NODE_ENV !== 'production') {
+  try {
+    require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+    require('dotenv').config({ path: path.join(__dirname, '..', '..', '..', '.env') });
+  } catch (e) {
+    // dotenv optional in environments with pre-loaded vars
+  }
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
+
+// Sanitize DATABASE_URL (trim spaces, remove accidental wrapping quotes)
+const sanitizedDatabaseUrl = (process.env.DATABASE_URL || '').trim().replace(/^["']|["']$/g, '');
 
 // Fail-fast in production if critical variables are missing
 if (isProduction) {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim().length < 16) {
     throw new Error('CRITICAL CONFIGURATION ERROR: JWT_SECRET environment variable is required in production (minimum 16 characters). Configure this in Vercel Project Settings.');
   }
-  if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.startsWith('postgres')) {
+  if (!sanitizedDatabaseUrl || !sanitizedDatabaseUrl.startsWith('postgres')) {
     throw new Error('CRITICAL CONFIGURATION ERROR: DATABASE_URL environment variable is required in production with a valid PostgreSQL URI. Configure this in Vercel Project Settings.');
   }
 }
@@ -27,7 +34,7 @@ module.exports = {
   PORT: parseInt(process.env.PORT || '5000', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
   FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN || '*',
-  DATABASE_URL: process.env.DATABASE_URL || '',
+  DATABASE_URL: sanitizedDatabaseUrl,
 
   // Database Pool settings (optimized for serverless & Supabase transaction pooler)
   DB_POOL_MAX: parseInt(process.env.DB_POOL_MAX || (isProduction ? '5' : '20'), 10),

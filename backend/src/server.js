@@ -53,8 +53,12 @@ function isOriginAllowed(origin) {
     }
   }
 
-  // Production: strictly allow configured FRONTEND_ORIGIN only
-  if (configuredOrigins.includes(cleanOrigin)) {
+  // Production and universal origin check: allow wildcard, explicit origins, Vercel, or GitHub Pages
+  if (config.FRONTEND_ORIGIN === '*' || configuredOrigins.includes('*') || configuredOrigins.includes(cleanOrigin)) {
+    return true;
+  }
+
+  if (cleanOrigin.endsWith('.vercel.app') || cleanOrigin.endsWith('.github.io')) {
     return true;
   }
 

@@ -608,6 +608,14 @@ async function loadRemoteSubsystems() {
         renderChatDrawer();
       }
     });
+
+    // 8. Load Smart Matches from Backend
+    apiRequest('/matches').then(({ ok, data }) => {
+      if (ok && data.success && Array.isArray(data.data) && data.data.length > 0) {
+        store.students = data.data;
+        renderSmartMatches();
+      }
+    });
   } catch (err) {
     console.warn('Backend subsystems offline. Operating in optimistic offline mode.');
   }
